@@ -1,0 +1,36 @@
+---
+title: better-auth 的 Organization 与自定义 Workspace 的区别
+---
+
+在使用 better-auth 构建多租户应用时，官方提供的 `Organization` 实体与许多团队自定义的 `Workspace` 概念看起来相似，但二者关注点与职责并不完全一致。
+
+## 关注点对比
+
+| 维度 | better-auth Organization | 自定义 Workspace |
+| --- | --- | --- |
+| 核心定位 | better-auth 内置的**鉴权域**，用于管理一组用户在同一租户下的身份与角色。 | 业务层面的**资源域**，承载文档、项目、AI 任务等领域对象。 |
+| 数据来源 | 存储于 better-auth 的表结构（如 `organization`, `organization_member`），由 SDK 负责创建与维护。 | 由业务数据库（PostgreSQL + Drizzle）建模，字段、关联完全可自定义。 |
+| 生命周期 | 跟随鉴权逻辑：创建账号、邀请成员、设置角色等。 | 跟随业务流程：创建项目空间、设置计费方案、统计资源占用等。 |
+| 扩展性 | 支持基础字段与角色，扩展能力受限于 better-auth 的 API。 | 可自由加入业务字段（如 plan、配额、AI 开关），并与其他业务表建立复杂关系。 |
+| 跨项目复用 | 侧重“用户属于哪些组织”。 | 侧重“哪些业务实体属于该工作区，可被哪些项目引用”。 |
+
+## 推荐的协同方式
+
+1. **身份与访问控制**：使用 better-auth 的 Organization/Member 表处理登录、邀请、角色（owner/admin/member 等）。
+2. **业务资源隔离**：在业务数据库中创建 `workspaces` 表，并在所有需要隔离的实体（projects、documents、ai_tasks 等）上附加 `workspace_id`。
+3. **桥接关系**：在代码中，将用户 session 中的 `organizationId` 与 `workspace_id` 建立映射：
+   - 同名同 ID：最简单，Organization 即 Workspace，只在业务层做扩展字段。
+   - 一对多/多对一：当需要一个 Organization 下拥有多个 Workspace（例如企业账号下的多个业务空间）时，可在业务表中增加 `organization_id` 外键。
+4. **权限判定**：查询业务数据前，先通过 better-auth 校验用户是否属于目标 Organization，再使用 `workspace_members`（或直接复用 better-auth 的组织成员信息）判断权限级别。
+
+## 何时需要自定义 Workspace？
+
+- **需要跨项目共享文档**：Workspace 作为文档的全局容器，可与多个项目建立关联。Organization 只表达成员关系，无法直接描述文档与项目的多对多。
+- **需要计费或配额**：Workspace 可以记录订阅方案、使用额度，并与计费系统对接。Organization 不直接承担这些字段。
+- **需要扩展域模型**：例如工作区级别的 AI 设置、默认模板、自动化流程等，都更适合放在 Workspace 侧管理。
+
+## 小结
+
+- Organization 解决“谁可以访问”的问题，是鉴权层的租户划分。
+- Workspace 解决“可以访问哪些资源”的问题，是业务层的资源容器。
+- 在实际项目中，可以将两者建立一一映射，或者视需求构建更灵活的关联，从而兼顾 better-auth 的鉴权能力与自定义业务模型的可扩展性。
